@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="600" height="804" viewBox="0 0 600 804" version="1.1" xmlns="http://www.w3.org/2000/svg">
+ <defs>
+  <marker id="arrow" overflow="visible" orient="auto-start-reverse" markerWidth="9" markerHeight="7" refX="7" refY="3.5">
+   <path d="M0 0 L8 3.5 L0 7 z" fill="#334155"/>
+  </marker>
+  <style>
+   text { font-family: 'Roboto', Arial, sans-serif; fill: #0f172a; }
+   .box   { fill: #ffffff; stroke: #334155; stroke-width: 1.4; }
+   .lo    { fill: #eff6ff; stroke: #1d4ed8; stroke-width: 1.4; }
+   .ant   { fill: #f1f5f9; stroke: #334155; stroke-width: 1.4; }
+   .t     { font-size: 13.5px; font-weight: 600; }
+   .s     { font-size: 11px; fill: #475569; }
+   .key   { font-size: 11px; font-weight: 700; fill: #b45309; }
+   .flow  { fill: none; stroke: #334155; stroke-width: 1.6; }
+   .elbl  { font-size: 10.5px; font-weight: 600; fill: #1d4ed8; }
+  </style>
+ </defs>
+
+ <!-- antenna -->
+ <rect class="ant" x="305" y="14" width="130" height="34" rx="17"/>
+ <text class="t" x="370" y="36" text-anchor="middle">Antenna</text>
+ <path class="flow" d="M370 48 V68" marker-end="url(#arrow)"/>
+
+ <!-- RF front end -->
+ <rect class="box" x="210" y="70" width="320" height="96" rx="6"/>
+ <text class="t"   x="370" y="90"  text-anchor="middle">RF front end — BPF banks</text>
+ <text class="key" x="370" y="109" text-anchor="middle">enable PG2 ★   (RX front-end master)</text>
+ <text class="s"   x="370" y="125" text-anchor="middle">primary band PD9/10/11/13 · sub-band SPI6</text>
+ <text class="s"   x="370" y="139" text-anchor="middle">→ 74HC595 (SCK PG13 · MOSI PG14 · latch PG12)</text>
+ <text class="s"   x="370" y="156" text-anchor="middle">BAND_V = DAC2 → PA5</text>
+ <path class="flow" d="M370 166 V188" marker-end="url(#arrow)"/>
+
+ <!-- VersaClock (LO) -->
+ <rect class="lo" x="20" y="190" width="150" height="64" rx="6"/>
+ <text class="t" x="95" y="211" text-anchor="middle">VersaClock</text>
+ <text class="s" x="95" y="227" text-anchor="middle">I²C1 0x6A (PB6/PB7)</text>
+ <text class="s" x="95" y="242" text-anchor="middle">OUT1 = LO · OUT0 = MCLK</text>
+ <path class="flow" d="M170 222 H208" marker-end="url(#arrow)"/>
+ <text class="elbl" x="189" y="215" text-anchor="middle">LO</text>
+
+ <!-- QSD mixer -->
+ <rect class="box" x="210" y="190" width="320" height="64" rx="6"/>
+ <text class="t" x="370" y="217" text-anchor="middle">QSD mixer</text>
+ <text class="s" x="370" y="235" text-anchor="middle">quadrature down-convert · LO = 4 × Ftuned</text>
+ <path class="flow" d="M370 254 V276" marker-end="url(#arrow)"/>
+
+ <!-- CS4272 -->
+ <rect class="box" x="210" y="278" width="320" height="58" rx="6"/>
+ <text class="t" x="370" y="303" text-anchor="middle">I/Q ADC — CS4272</text>
+ <text class="s" x="370" y="321" text-anchor="middle">I²C 0x10 → I²S slave</text>
+ <path class="flow" d="M370 336 V358" marker-end="url(#arrow)"/>
+
+ <!-- I2S RX -->
+ <rect class="box" x="210" y="360" width="320" height="70" rx="6"/>
+ <text class="t" x="370" y="383" text-anchor="middle">I²S RX — I/Q · SPI3 / I²S3</text>
+ <text class="s" x="370" y="401" text-anchor="middle">DMA1 Stream0 · WS PA15</text>
+ <text class="s" x="370" y="416" text-anchor="middle">128 complex samples @ 100 kHz</text>
+ <path class="flow" d="M370 430 V452" marker-end="url(#arrow)"/>
+
+ <!-- DSP -->
+ <rect class="box" x="210" y="454" width="320" height="58" rx="6"/>
+ <text class="t" x="370" y="479" text-anchor="middle">DSP · STM32F427 @ 250 MHz</text>
+ <text class="s" x="370" y="497" text-anchor="middle">rx_dsp.c · AM ≈46% / USB ≈60% of budget</text>
+ <path class="flow" d="M370 512 V534" marker-end="url(#arrow)"/>
+
+ <!-- I2S TX audio -->
+ <rect class="box" x="210" y="536" width="320" height="70" rx="6"/>
+ <text class="t" x="370" y="559" text-anchor="middle">I²S TX — audio · I²S2ext</text>
+ <text class="s" x="370" y="577" text-anchor="middle">DMA1 Stream4 · WS PB12</text>
+ <text class="s" x="370" y="592" text-anchor="middle">L = HPL capture · R = HPR speaker</text>
+ <path class="flow" d="M370 606 V628" marker-end="url(#arrow)"/>
+
+ <!-- Codec -->
+ <rect class="box" x="210" y="630" width="320" height="70" rx="6"/>
+ <text class="t" x="370" y="653" text-anchor="middle">Codec — TLV320AIC3204</text>
+ <text class="s" x="370" y="671" text-anchor="middle">I²C 0x18 · reset PE15 · I²S clock master</text>
+ <text class="s" x="370" y="686" text-anchor="middle">HP unmute: page 1 R0x10 / R0x11</text>
+ <path class="flow" d="M370 700 V722" marker-end="url(#arrow)"/>
+
+ <!-- Audio out -->
+ <rect class="box" x="210" y="724" width="320" height="66" rx="6"/>
+ <text class="t" x="370" y="748" text-anchor="middle">Audio out</text>
+ <text class="s" x="370" y="766" text-anchor="middle">HPR → LM386 → internal speaker 🔊</text>
+ <text class="s" x="370" y="781" text-anchor="middle">HPL → R16 audio-capture line</text>
+</svg>

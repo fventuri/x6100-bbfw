@@ -1,0 +1,6 @@
+site_title: x6100-bbfw
+
+description: Open-source (MIT) baseband firmware for the Xiegu X6100 STM32F427 MCU — Phase 2 and Phase 3 (receive-only radio), developed and validated in the Renode emulator
+
+source: https://github.com/fventuri/x6100-bbfw
+issues: https://github.com/fventuri/x6100-bbfw/issues
