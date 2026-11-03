@@ -1,0 +1,28 @@
+// X6100 BASE -- STM32F427 platform for Renode.
+//
+// Reuses Renode's bundled STM32F4 CPU base (Cortex-M4F, 2 MB flash @0x08000000,
+// SRAM @0x20000000, RCC, GPIO A-K, USART1, timers, DMA, I2C, SPI, NVIC). The
+// STM32F427 is the near-identical sibling of the F429 that this base models;
+// for Phase 0 the base description is sufficient as-is.
+//
+// Later phases will extend this with the parts the base does not model:
+// ADC1/2/3 + DAC, I2S / 4-stream DMA audio transport, SPI6 RF switching, and
+// I2C device models (TLV320AIC3204, CS4272, MAX17205, VersaClock, PCA9535).
+using "/home/franco/X6100/tools-renode/renode_1.17.0-portable/platforms/cpus/stm32f4.repl"
+
+// The firmware runs the OEM 250 MHz PLL tree (Oleg clocks.md) and derives its
+// SysTick reload from a 250 MHz HCLK. Align Renode's SysTick reference clock so
+// firmware-perceived ms match virtual-time ms.
+nvic:
+    systickFrequency: 250000000
+
+// ADC1/ADC2/ADC3 register block + common (0x40012000-0x400123FF) and the DAC
+// (0x40007400). Renode has no faithful STM32F4 ADC-scan+DMA or STM32 DAC model
+// and the ADC's live samples come from external analog, so these are backed by
+// plain register memory: Phase 2a validates ADC/DAC *configuration* (read-back)
+// and the scaling/filter *math* (self-test). Live acquisition is hardware.
+adcRegs: Memory.MappedMemory @ sysbus 0x40012000
+    size: 0x400
+
+dacRegs: Memory.MappedMemory @ sysbus 0x40007400
+    size: 0x400

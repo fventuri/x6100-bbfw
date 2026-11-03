@@ -1,0 +1,10 @@
+// X6100 BASE -- Phase 2a device models (analog + codec/converter init).
+// Direct-GPIO board. Requires the X6100RegFileI2C type (.cs compiled first).
+
+max17205: I2C.X6100RegFileI2C @ i2c1 0x36
+    Profile: "max17205"
+versaclock: I2C.X6100RegFileI2C @ i2c1 0x6A
+
+codec: I2C.X6100RegFileI2C @ i2c2 0x18        // TLV320AIC3204
+cs4272: I2C.X6100RegFileI2C @ i2c2 0x10       // CS4272 present -> no 0x4C fallback
+aux4a: I2C.X6100RegFileI2C @ i2c2 0x4A

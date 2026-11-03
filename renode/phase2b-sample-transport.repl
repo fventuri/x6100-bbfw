@@ -1,0 +1,15 @@
+// X6100 BASE -- Phase 2b platform additions (I2S sample transport).
+//
+// The base platform models spi2/spi3 as SPI.STM32SPI (no external-clock I2S
+// framing) and has no I2S2ext/I2S3ext peripherals. For the Phase 2b
+// deterministic validation (register read-back + Stream3 handler logic) the
+// ext blocks only need to accept and retain their I2SCFGR/CR2/DR writes, so
+// they are backed by plain register memory. Live BCLK/WCLK-clocked cadence is
+// not reproducible on this stock platform (see firmware.c EMULATOR SCOPE) and
+// is covered by the optional C# I2S-codec model or deferred to hardware.
+
+i2s2ext: Memory.MappedMemory @ sysbus 0x40003400
+    size: 0x400
+
+i2s3ext: Memory.MappedMemory @ sysbus 0x40004000
+    size: 0x400

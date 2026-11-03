@@ -1,0 +1,19 @@
+// X6100 BASE -- Phase 2b-HW emulator sanity platform.
+// Phase 2a I2C device models (so the codec bring-up completes without I2C
+// timeouts) plus the two I2S ext register blocks. This firmware is built for
+// HARDWARE; in Renode there is still no external I2S clock, so bank_count
+// stays 0 -- the run only confirms bring-up completes without faulting.
+
+max17205: I2C.X6100RegFileI2C @ i2c1 0x36
+    Profile: "max17205"
+versaclock: I2C.X6100RegFileI2C @ i2c1 0x6A
+
+codec: I2C.X6100RegFileI2C @ i2c2 0x18        // TLV320AIC3204
+cs4272: I2C.X6100RegFileI2C @ i2c2 0x10       // CS4272 present -> no 0x4C fallback
+aux4a: I2C.X6100RegFileI2C @ i2c2 0x4A
+
+i2s2ext: Memory.MappedMemory @ sysbus 0x40003400
+    size: 0x400
+
+i2s3ext: Memory.MappedMemory @ sysbus 0x40004000
+    size: 0x400
