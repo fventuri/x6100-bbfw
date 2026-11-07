@@ -61,7 +61,7 @@
  <!-- DSP -->
  <rect class="box" x="210" y="454" width="320" height="58" rx="6"/>
  <text class="t" x="370" y="479" text-anchor="middle">DSP · STM32F427 @ 250 MHz</text>
- <text class="s" x="370" y="497" text-anchor="middle">rx_dsp.c · AM ≈46% / USB ≈60% of budget</text>
+ <text class="s" x="370" y="497" text-anchor="middle">rx_dsp.c · AM ≈35% / USB ≈45% of budget</text>
  <path class="flow" d="M370 512 V534" marker-end="url(#arrow)"/>
 
  <!-- I2S TX audio -->

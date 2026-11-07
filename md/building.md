@@ -10,7 +10,10 @@
   export CUBE=/path/to/STM32CubeF4      # default: ~/st/STM32CubeF4
   ```
   No LL `.c` sources are compiled — every LL call used is `__STATIC_INLINE`, and
-  the clock tree is set with direct CMSIS register writes.
+  the clock tree is set with direct CMSIS register writes. The Phase 3 receiver
+  additionally compiles a few **CMSIS-DSP** FIR sources (`arm_fir_decimate_f32`
+  and friends) straight from the Cube's `Drivers/CMSIS/DSP/Source` tree — no
+  prebuilt math library is needed.
 - **openssl** and **python3** — `build.sh` uses them to produce the encrypted
   `.xgf` flash image. Only needed if you intend to flash hardware.
 - **Renode** (optional, for off-hardware runs) — the self-contained 1.17.0

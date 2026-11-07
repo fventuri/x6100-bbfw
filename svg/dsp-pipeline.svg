@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg width="460" height="700" viewBox="0 0 460 700" version="1.1" xmlns="http://www.w3.org/2000/svg">
+<svg width="460" height="724" viewBox="0 0 460 724" version="1.1" xmlns="http://www.w3.org/2000/svg">
  <defs>
   <marker id="arrow" overflow="visible" orient="auto-start-reverse" markerWidth="9" markerHeight="7" refX="7" refY="3.5">
    <path d="M0 0 L8 3.5 L0 7 z" fill="#334155"/>
@@ -12,6 +12,7 @@
    .t    { font-size: 13px; font-weight: 600; }
    .s    { font-size: 10.5px; fill: #475569; }
    .flow { fill: none; stroke: #334155; stroke-width: 1.6; }
+   .fn   { font-size: 10px; fill: #64748b; }
   </style>
  </defs>
 
@@ -31,41 +32,44 @@
  <text class="t" x="230" y="178" text-anchor="middle">complex DC block + I/Q correction</text>
  <path class="flow" d="M230 196 V214" marker-end="url(#arrow)"/>
 
- <!-- 4 decimate 4 -->
+ <!-- 4 decimate A /2 -->
  <rect class="box" x="60" y="216" width="340" height="44" rx="6"/>
- <text class="t" x="230" y="242" text-anchor="middle">decimate / 4 → 25 kHz</text>
+ <text class="t" x="230" y="242" text-anchor="middle">decimate / 2 → 50 kHz  (decA, 13-tap)</text>
  <path class="flow" d="M230 260 V278" marker-end="url(#arrow)"/>
 
- <!-- 5 demod -->
- <rect class="demod" x="60" y="280" width="340" height="58" rx="6"/>
- <text class="t" x="230" y="300" text-anchor="middle">demodulate (per mode)</text>
- <text class="s" x="230" y="317" text-anchor="middle">AM: envelope √(I² + Q²)</text>
- <text class="s" x="230" y="331" text-anchor="middle">LSB / USB: 101-tap Hilbert phasing</text>
- <path class="flow" d="M230 338 V356" marker-end="url(#arrow)"/>
+ <!-- 5 decimate B /2 -->
+ <rect class="box" x="60" y="280" width="340" height="44" rx="6"/>
+ <text class="t" x="230" y="306" text-anchor="middle">decimate / 2 → 25 kHz  (decB, 23-tap)</text>
+ <path class="flow" d="M230 324 V342" marker-end="url(#arrow)"/>
 
- <!-- 6 decimate 2 -->
- <rect class="box" x="60" y="358" width="340" height="44" rx="6"/>
- <text class="t" x="230" y="384" text-anchor="middle">decimate / 2 → 12.5 kHz</text>
- <path class="flow" d="M230 402 V420" marker-end="url(#arrow)"/>
+ <!-- 6 demod (per mode) -> 12.5 kHz -->
+ <rect class="demod" x="60" y="344" width="340" height="62" rx="6"/>
+ <text class="t" x="230" y="364" text-anchor="middle">demodulate (per mode) → 12.5 kHz</text>
+ <text class="s" x="230" y="381" text-anchor="middle">AM: envelope √(I² + Q²), then decimate / 2</text>
+ <text class="s" x="230" y="396" text-anchor="middle">LSB / USB: decimate / 2, 101-tap Hilbert phasing</text>
+ <path class="flow" d="M230 406 V424" marker-end="url(#arrow)"/>
 
  <!-- 7 audio dc -->
- <rect class="box" x="60" y="422" width="340" height="44" rx="6"/>
- <text class="t" x="230" y="448" text-anchor="middle">audio DC block (carrier removal)</text>
- <path class="flow" d="M230 466 V484" marker-end="url(#arrow)"/>
+ <rect class="box" x="60" y="426" width="340" height="44" rx="6"/>
+ <text class="t" x="230" y="452" text-anchor="middle">audio DC block (carrier removal)</text>
+ <path class="flow" d="M230 470 V488" marker-end="url(#arrow)"/>
 
  <!-- 8 agc -->
- <rect class="agc" x="60" y="486" width="340" height="56" rx="6"/>
- <text class="t" x="230" y="507" text-anchor="middle">feed-forward look-ahead AGC</text>
- <text class="s" x="230" y="524" text-anchor="middle">log-domain · ~4.8 ms look-ahead · target dBFS</text>
- <path class="flow" d="M230 542 V560" marker-end="url(#arrow)"/>
+ <rect class="agc" x="60" y="490" width="340" height="56" rx="6"/>
+ <text class="t" x="230" y="511" text-anchor="middle">feed-forward look-ahead AGC</text>
+ <text class="s" x="230" y="528" text-anchor="middle">log-domain · ~4.8 ms look-ahead · target dBFS</text>
+ <path class="flow" d="M230 546 V564" marker-end="url(#arrow)"/>
 
  <!-- 9 interpolate -->
- <rect class="box" x="60" y="562" width="340" height="44" rx="6"/>
- <text class="t" x="230" y="588" text-anchor="middle">interpolate / 8 → 100 kHz</text>
- <path class="flow" d="M230 606 V624" marker-end="url(#arrow)"/>
+ <rect class="box" x="60" y="566" width="340" height="44" rx="6"/>
+ <text class="t" x="230" y="592" text-anchor="middle">interpolate / 8 → 100 kHz  (72-tap)</text>
+ <path class="flow" d="M230 610 V628" marker-end="url(#arrow)"/>
 
  <!-- 10 pack -->
- <rect class="box" x="60" y="626" width="340" height="56" rx="6"/>
- <text class="t" x="230" y="647" text-anchor="middle">pack Q31 → I²S2ext bank</text>
- <text class="s" x="230" y="664" text-anchor="middle">L = rx_lin_mult · HPL   ·   R = rx_audio_gain · HPR</text>
+ <rect class="box" x="60" y="630" width="340" height="56" rx="6"/>
+ <text class="t" x="230" y="651" text-anchor="middle">pack Q31 → I²S2ext bank</text>
+ <text class="s" x="230" y="668" text-anchor="middle">L = rx_lin_mult · HPL   ·   R = rx_audio_gain · HPR</text>
+
+ <!-- footnote -->
+ <text class="fn" x="230" y="706" text-anchor="middle">decimators &amp; interpolator: CMSIS-DSP polyphase FIR (equiripple, linear phase)</text>
 </svg>
