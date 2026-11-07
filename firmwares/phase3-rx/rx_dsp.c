@@ -1,18 +1,44 @@
 /*
  * x6100-bbfw -- Phase 3 receive DSP implementation. See rx_dsp.h.
- * Plain-C float FIRs using the recovered OEM coefficient arrays
- * (rx_fir_coeffs.h, from x6100-base analysis). At 250 MHz with the FPU the
- * whole chain is ~tens of microseconds per 1.28 ms bank, so it runs directly
- * in the DMA1_Stream3 ISR like the OEM handler did (docs/dma.md).
+ *
+ * Multirate decimation/interpolation chain (Georgy's plan, 2026-11-06) run
+ * through CMSIS-DSP polyphase FIRs (arm_fir_decimate_f32 / _interpolate_f32 /
+ * arm_fir_f32 -- MACs at the output/input rate only, no per-sample history
+ * shift). Replaces the single-rate recovered-OEM chain (rx_fir_coeffs.h):
+ *
+ *   100 kHz complex I/Q
+ *     -> decA /2 -> 50 kHz   (pass[0,8k] stop[42k,50k], 13 taps, run @100k)
+ *     -> decB /2 -> 25 kHz   (pass[0,8k] stop[17k,25k], 23 taps, run @50k)
+ *   AM : |I+jQ| envelope @25k -> dec25 /2 (real) -> 12.5 kHz audio
+ *   SSB: dec25 /2 on I&Q (complex) -> 12.5 kHz, 101-tap Hilbert phasing
+ *   both: DC block -> AGC -> interp /8 -> 100 kHz -> Q31 into the I2S2ext bank
+ *
+ * The 25 kHz complex IF (+-8 kHz) is Georgy's clean AM/NBFM stream. The audio
+ * tail (DC block, AGC, interpolator) stays at 12.5 kHz so the hardware-tuned
+ * AGC time constants carry over unchanged. Coefficients: rx_multirate_coeffs.h
+ * (generated); all decimators/interpolator are even-symmetric linear-phase, so
+ * CMSIS's time-reversed coefficient order is a no-op for them. The Hilbert is
+ * anti-symmetric, so it is loaded reversed (= negated) at init to reproduce the
+ * hardware-verified USB = I + H{Q} / LSB = I - H{Q} sign convention.
+ *
+ * At 250 MHz with the FPU the whole chain is tens of microseconds per 1.28 ms
+ * bank, so it runs directly in the DMA1_Stream3 ISR like the OEM handler.
  */
 #include "rx_dsp.h"
 #include "i2s.h"
-#include "rx_fir_coeffs.h"
-#include "hilbert_coeffs.h"   /* 101-tap Hilbert transformer for LSB/USB phasing demod */
+#include "arm_math.h"            /* CMSIS-DSP polyphase FIRs (built into this FW) */
+#include "rx_multirate_coeffs.h" /* rx_decA / rx_decB / rx_dec25 / rx_int8        */
+#include "hilbert_coeffs.h"      /* 101-tap Hilbert transformer for LSB/USB phasing */
 #include <math.h>   /* log10f / expf for the log-domain AGC (libm; see build.sh) */
 
 #define Q31_SCALE   2147483648.0f   /* 2^31  */
 #define Q31_INVSCALE 4.656612873e-10f /* 2^-31 */
+
+/* Sample counts down the decimation chain (per bank). */
+#define N0    I2S_BANK_FRAMES        /* 128 @ 100 kHz   */
+#define N50   (I2S_BANK_FRAMES / 2u) /*  64 @  50 kHz   */
+#define N25   (I2S_BANK_FRAMES / 4u) /*  32 @  25 kHz   */
+#define N125  (I2S_BANK_FRAMES / 8u) /*  16 @  12.5 kHz */
 
 /* Single-precision square root via the Cortex-M4F hardware instruction (no
  * libm, no errno, ~14 cycles). */
@@ -46,19 +72,26 @@ volatile float rx_audio_peak;
  * (SSB/FM) are added. */
 volatile uint32_t rx_dsp_cyc_max;
 
-/* ---- FIR primitives (z[0] = newest sample; histories persist across banks) ----
- * Decimation phase is continuous across banks because 128 % 4 == 0 and
- * 32 % 2 == 0, so an output is emitted at every input index i with
- * i % M == M-1 without needing a saved phase. */
-static float dec4_zi[FIR_DEC4_36_TAPS];
-static float dec4_zq[FIR_DEC4_36_TAPS];
-static float dec2_z[FIR_DEC2_36_TAPS];
-static float int8_z[FIR_INT8_64_TAPS / 8u];
-/* SSB-only (LSB/USB phasing detector) histories. */
-static float dec2_zi[FIR_DEC2_36_TAPS];  /* I decimate-by-2 (25k->12.5k) */
-static float dec2_zq[FIR_DEC2_36_TAPS];  /* Q decimate-by-2 (25k->12.5k) */
-static float hil_z[HILBERT_TAPS];        /* 101-tap Hilbert FIR, run on Q */
-static float idel_z[HILBERT_DELAY + 1];  /* I delay = Hilbert group delay (50) */
+/* ---- CMSIS-DSP polyphase FIR instances + their persistent state buffers ----
+ * Each state buffer is (numTaps + blockSize - 1) floats and holds the cross-bank
+ * history; the decimation phase is maintained internally by CMSIS across calls
+ * (blockSize is constant and a multiple of M every bank). Flushed on retune by
+ * zeroing the state (dsp_reset_state). */
+static arm_fir_decimate_instance_f32 decA_i, decA_q;   /* 100->50 kHz complex */
+static arm_fir_decimate_instance_f32 decB_i, decB_q;   /*  50->25 kHz complex */
+static arm_fir_decimate_instance_f32 dec25_env;        /*  25->12.5 AM env (real) */
+static arm_fir_decimate_instance_f32 dec25_i, dec25_q; /*  25->12.5 SSB (complex) */
+static arm_fir_instance_f32          hil;              /* 101-tap Hilbert on Q */
+static arm_fir_interpolate_instance_f32 int8;          /* 12.5->100 kHz /8    */
+
+static float decA_i_st[RX_DECA_TAPS + N0 - 1u],   decA_q_st[RX_DECA_TAPS + N0 - 1u];
+static float decB_i_st[RX_DECB_TAPS + N50 - 1u],  decB_q_st[RX_DECB_TAPS + N50 - 1u];
+static float dec25_env_st[RX_DEC25_TAPS + N25 - 1u];
+static float dec25_i_st[RX_DEC25_TAPS + N25 - 1u], dec25_q_st[RX_DEC25_TAPS + N25 - 1u];
+static float hil_st[HILBERT_TAPS + N125 - 1u];
+static float int8_st[(RX_INT8_TAPS / 8u) + N125 - 1u];
+static float hil_rev[HILBERT_TAPS];   /* Hilbert coeffs reversed for CMSIS order */
+static float idel_z[HILBERT_DELAY + 1]; /* SSB I delay = Hilbert group delay (50) */
 
 /* Complex (pre-decimation) DC block: one-pole HPF per component,
  * y[n] = x[n] - x[n-1] + 0.995*y[n-1] (~80 Hz corner @100 kHz). Removes the
@@ -71,42 +104,23 @@ static float iq_e1, iq_e2, iq_c;
 /* Audio DC-block state (file scope so rx_dsp_reset() can flush it on retune). */
 static float dc_x1, dc_y1;
 
-static int fir_decimate(const float *h, int taps, int m, float *z,
-                        const float *x, int nin, float *y)
-{
-    int nout = 0;
-    for (int i = 0; i < nin; i++) {
-        for (int k = taps - 1; k > 0; k--)
-            z[k] = z[k - 1];
-        z[0] = x[i];
-        if ((i % m) == (m - 1)) {
-            float acc = 0.0f;
-            for (int k = 0; k < taps; k++)
-                acc += h[k] * z[k];
-            y[nout++] = acc;
-        }
-    }
-    return nout;
-}
+static void zero_f(float *p, unsigned n) { for (unsigned k = 0; k < n; k++) p[k] = 0.0f; }
 
-/* Polyphase interpolator by L: y[i*L+p] = sum_k h[p + k*L] * x[i-k]. The
- * L factor is folded into the caller's output gain. */
-static void fir_interpolate(const float *h, int taps, int l, float *z,
-                            const float *x, int nin, float *y)
+/* One-time CMSIS instance setup (ISR context, single-threaded; guarded below). */
+static void rx_filters_init(void)
 {
-    int phases = taps / l;        /* 64/8 = 8 taps per output phase */
-    int o = 0;
-    for (int i = 0; i < nin; i++) {
-        for (int k = phases - 1; k > 0; k--)
-            z[k] = z[k - 1];
-        z[0] = x[i];
-        for (int p = 0; p < l; p++) {
-            float acc = 0.0f;
-            for (int k = 0; k < phases; k++)
-                acc += h[p + k * l] * z[k];
-            y[o++] = acc;
-        }
-    }
+    arm_fir_decimate_init_f32(&decA_i, RX_DECA_TAPS, 2, rx_decA, decA_i_st, N0);
+    arm_fir_decimate_init_f32(&decA_q, RX_DECA_TAPS, 2, rx_decA, decA_q_st, N0);
+    arm_fir_decimate_init_f32(&decB_i, RX_DECB_TAPS, 2, rx_decB, decB_i_st, N50);
+    arm_fir_decimate_init_f32(&decB_q, RX_DECB_TAPS, 2, rx_decB, decB_q_st, N50);
+    arm_fir_decimate_init_f32(&dec25_env, RX_DEC25_TAPS, 2, rx_dec25, dec25_env_st, N25);
+    arm_fir_decimate_init_f32(&dec25_i,   RX_DEC25_TAPS, 2, rx_dec25, dec25_i_st,   N25);
+    arm_fir_decimate_init_f32(&dec25_q,   RX_DEC25_TAPS, 2, rx_dec25, dec25_q_st,   N25);
+    /* Hilbert is anti-symmetric: reversed(h)=-h; store reversed so arm_fir_f32's
+     * time-reversed convention yields the same H{Q} as the old normal-order loop. */
+    for (unsigned k = 0; k < HILBERT_TAPS; k++) hil_rev[k] = hilbert_101[HILBERT_TAPS - 1u - k];
+    arm_fir_init_f32(&hil, HILBERT_TAPS, hil_rev, hil_st, N125);
+    arm_fir_interpolate_init_f32(&int8, 8, RX_INT8_TAPS, rx_int8, int8_st, N125);
 }
 
 static inline int32_t to_q31(float s)
@@ -212,11 +226,13 @@ void rx_dsp_flush(void) { dsp_reset_req = 1; }
 
 static void dsp_reset_state(void)
 {
-    for (int k = 0; k < (int)FIR_DEC4_36_TAPS; k++) { dec4_zi[k] = 0.0f; dec4_zq[k] = 0.0f; }
-    for (int k = 0; k < (int)FIR_DEC2_36_TAPS; k++) { dec2_z[k] = 0.0f; dec2_zi[k] = 0.0f; dec2_zq[k] = 0.0f; }
-    for (int k = 0; k < (int)(FIR_INT8_64_TAPS / 8u); k++) int8_z[k] = 0.0f;
-    for (int k = 0; k < HILBERT_TAPS; k++) hil_z[k] = 0.0f;
-    for (int k = 0; k <= HILBERT_DELAY; k++) idel_z[k] = 0.0f;
+    zero_f(decA_i_st, RX_DECA_TAPS + N0 - 1u);  zero_f(decA_q_st, RX_DECA_TAPS + N0 - 1u);
+    zero_f(decB_i_st, RX_DECB_TAPS + N50 - 1u); zero_f(decB_q_st, RX_DECB_TAPS + N50 - 1u);
+    zero_f(dec25_env_st, RX_DEC25_TAPS + N25 - 1u);
+    zero_f(dec25_i_st, RX_DEC25_TAPS + N25 - 1u); zero_f(dec25_q_st, RX_DEC25_TAPS + N25 - 1u);
+    zero_f(hil_st, HILBERT_TAPS + N125 - 1u);
+    zero_f(int8_st, (RX_INT8_TAPS / 8u) + N125 - 1u);
+    zero_f(idel_z, HILBERT_DELAY + 1);
     dcb_xi1 = dcb_yi1 = dcb_xq1 = dcb_yq1 = 0.0f;
     iq_e1 = iq_e2 = iq_c = 0.0f;
     dc_x1 = dc_y1 = 0.0f;
@@ -230,6 +246,9 @@ void i2s_dsp(const uint16_t *rx_audio, const uint16_t *rx_iq,
 {
     (void)rx_audio;   /* SPI2/I2S2 RX = TX-mic audio; unused for receive */
 
+    static int inited;
+    if (!inited) { rx_filters_init(); inited = 1; }              /* one-time CMSIS setup */
+
     if (dsp_reset_req) { dsp_reset_state(); dsp_reset_req = 0; }  /* flush on retune/mode change */
 
     uint32_t cyc0 = DWT->CYCCNT;   /* per-bank CPU-cost measurement (DWT enabled in app_main) */
@@ -238,9 +257,9 @@ void i2s_dsp(const uint16_t *rx_audio, const uint16_t *rx_iq,
      * (1b) complex DC block per component (one-pole HPF, a=0.995 ~80 Hz) to
      * strip the static front-end DC offset before it beats the carrier. Energy
      * stats (on the DC-blocked signal) feed the adaptive I/Q correction below. */
-    float I[I2S_BANK_FRAMES], Q[I2S_BANK_FRAMES];
+    float I[N0], Q[N0];
     float aE1 = 0.0f, aE2 = 0.0f, aC = 0.0f;
-    for (unsigned f = 0; f < I2S_BANK_FRAMES; f++) {
+    for (unsigned f = 0; f < N0; f++) {
         int32_t ci, cq;
         i2s_reconstruct_frame(&rx_iq[4u * f], &ci, &cq);
         float xi = (float)ci * Q31_INVSCALE;
@@ -252,7 +271,7 @@ void i2s_dsp(const uint16_t *rx_audio, const uint16_t *rx_iq,
         I[f] = i; Q[f] = q;
         aE1 += i * i; aE2 += q * q; aC += i * q;
     }
-    rx_iq_rms = f_sqrt((aE1 + aE2) / (2.0f * (float)I2S_BANK_FRAMES));
+    rx_iq_rms = f_sqrt((aE1 + aE2) / (2.0f * (float)N0));
 
     /* 1c. Adaptive I/Q imbalance correction (phasing-SSB image rejection + AM
      * envelope purity). Update leaky estimates, derive amplitude + cross-talk
@@ -267,58 +286,57 @@ void i2s_dsp(const uint16_t *rx_audio, const uint16_t *rx_iq,
         if (cross >  1.0f) cross =  1.0f; else if (cross < -1.0f) cross = -1.0f;
         if (amp   >  2.0f) amp   =  2.0f; else if (amp   <  0.5f) amp   =  0.5f;
     }
-    for (unsigned f = 0; f < I2S_BANK_FRAMES; f++) {
+    for (unsigned f = 0; f < N0; f++) {
         float i = I[f];
         Q[f] = Q[f] + i * cross;
         I[f] = i * amp;
     }
 
-    /* 2. Decimate complex by 4: 128 -> 32 per component. */
-    float Id[I2S_BANK_FRAMES / 4u], Qd[I2S_BANK_FRAMES / 4u];
-    fir_decimate(fir_dec4_36, FIR_DEC4_36_TAPS, 4, dec4_zi, I, I2S_BANK_FRAMES, Id);
-    fir_decimate(fir_dec4_36, FIR_DEC4_36_TAPS, 4, dec4_zq, Q, I2S_BANK_FRAMES, Qd);
+    /* 2. Multirate complex decimation to 25 kHz: 100->50 (decA) then 50->25
+     * (decB), I and Q independently. Id/Qd are 32 complex samples at 25 kHz,
+     * band-limited to +-8 kHz (Georgy's clean AM/NBFM IF). Polyphase: MACs at
+     * the decimated rate only, no per-input-sample history shift. */
+    float I50[N50], Q50[N50], Id[N25], Qd[N25];
+    arm_fir_decimate_f32(&decA_i, I,   I50, N0);
+    arm_fir_decimate_f32(&decA_q, Q,   Q50, N0);
+    arm_fir_decimate_f32(&decB_i, I50, Id,  N50);
+    arm_fir_decimate_f32(&decB_q, Q50, Qd,  N50);
 
     /* 3+4. Demodulate the 32 complex samples to 16 audio samples (12.5 kHz)
      * per the current mode. rx_env_dc (alive-line signal level) is the mean
      * complex magnitude in both paths. */
-    float au[I2S_BANK_FRAMES / 8u];
+    float au[N125];
     if (rx_mode == RX_MODE_AM) {
-        /* AM: |I+jQ| envelope @25k, then decimate real by 2 -> 16 @12.5k. */
-        float env[I2S_BANK_FRAMES / 4u];
+        /* AM: |I+jQ| envelope @25k, then decimate the real envelope by 2 -> 12.5k. */
+        float env[N25];
         float envsum = 0.0f;
-        for (unsigned k = 0; k < I2S_BANK_FRAMES / 4u; k++) {
+        for (unsigned k = 0; k < N25; k++) {
             env[k] = f_sqrt(Id[k] * Id[k] + Qd[k] * Qd[k]);
             envsum += env[k];
         }
-        rx_env_dc = envsum / (float)(I2S_BANK_FRAMES / 4u);
-        fir_decimate(fir_dec2_36, FIR_DEC2_36_TAPS, 2, dec2_z, env,
-                     I2S_BANK_FRAMES / 4u, au);
+        rx_env_dc = envsum / (float)N25;
+        arm_fir_decimate_f32(&dec25_env, env, au, N25);
     } else {
         /* LSB/USB phasing detector: decimate I and Q by 2 -> 16 complex @12.5k,
-         * H{Q} = 101-tap Hilbert FIR on Q, I delayed by its 50-sample group
-         * delay. HW I/Q polarity is inverted vs the textbook detector (bench-
-         * verified on WDOV, 2026-10-25), so the signs are flipped:
+         * H{Q} = 101-tap Hilbert FIR on Q (arm_fir_f32, reversed coeffs), I
+         * delayed by its 50-sample group delay. HW I/Q polarity is inverted vs
+         * the textbook detector (bench-verified on WDOV, 2026-10-25), so:
          *   USB = I_delayed + H{Q};  LSB = I_delayed - H{Q}.
          * With lo_offset 0 the dial offset maps straight to audio. */
-        float sbi[I2S_BANK_FRAMES / 8u], sbq[I2S_BANK_FRAMES / 8u];
-        fir_decimate(fir_dec2_36, FIR_DEC2_36_TAPS, 2, dec2_zi, Id,
-                     I2S_BANK_FRAMES / 4u, sbi);
-        fir_decimate(fir_dec2_36, FIR_DEC2_36_TAPS, 2, dec2_zq, Qd,
-                     I2S_BANK_FRAMES / 4u, sbq);
+        float sbi[N125], sbq[N125], hq[N125];
+        arm_fir_decimate_f32(&dec25_i, Id, sbi, N25);
+        arm_fir_decimate_f32(&dec25_q, Qd, sbq, N25);
+        arm_fir_f32(&hil, sbq, hq, N125);        /* H{Q}, group delay 50 samples */
         int usb = (rx_mode == RX_MODE_USB);
         float envsum = 0.0f;
-        for (unsigned k = 0; k < I2S_BANK_FRAMES / 8u; k++) {
-            for (int j = HILBERT_TAPS - 1; j > 0; --j) hil_z[j] = hil_z[j - 1];
-            hil_z[0] = sbq[k];
-            float hq = 0.0f;
-            for (int j = 0; j < HILBERT_TAPS; ++j) hq += hil_z[j] * hilbert_101[j];
+        for (unsigned k = 0; k < N125; k++) {
             for (int j = HILBERT_DELAY; j > 0; --j) idel_z[j] = idel_z[j - 1];
             idel_z[0] = sbi[k];
             float id = idel_z[HILBERT_DELAY];
-            au[k] = usb ? (id + hq) : (id - hq);
+            au[k] = usb ? (id + hq[k]) : (id - hq[k]);
             envsum += f_sqrt(sbi[k] * sbi[k] + sbq[k] * sbq[k]);
         }
-        rx_env_dc = envsum / (float)(I2S_BANK_FRAMES / 8u);
+        rx_env_dc = envsum / (float)N125;
     }
 
     /* 5. DC block: strip the carrier level so only the modulation remains.
@@ -326,7 +344,7 @@ void i2s_dsp(const uint16_t *rx_audio, const uint16_t *rx_iq,
      * ~200 Hz high-pass at 12.5 kHz). State is file-scope (dc_x1/dc_y1) so
      * rx_dsp_flush() clears it on retune. */
     float peak = 0.0f;
-    for (unsigned k = 0; k < I2S_BANK_FRAMES / 8u; k++) {
+    for (unsigned k = 0; k < N125; k++) {
         float x = au[k];
         float y = x - dc_x1 + 0.9f * dc_y1;
         dc_x1 = x; dc_y1 = y;
@@ -341,15 +359,16 @@ void i2s_dsp(const uint16_t *rx_audio, const uint16_t *rx_iq,
      * so the experiment's control settings transfer directly. When disabled the
      * audio passes through unchanged and loudness is set by rx_audio_gain. */
     if (rx_agc_on) {
-        for (unsigned k = 0; k < I2S_BANK_FRAMES / 8u; k++)
+        for (unsigned k = 0; k < N125; k++)
             au[k] *= RX_AGC_PREGAIN;
-        rx_agc_process(au, (int)(I2S_BANK_FRAMES / 8u));
+        rx_agc_process(au, (int)N125);
     }
 
-    /* 6. Interpolate by 8: 16 -> 128 samples back at the 100 kHz output rate. */
-    float out[I2S_BANK_FRAMES];
-    fir_interpolate(fir_int8_64, FIR_INT8_64_TAPS, 8, int8_z, au,
-                    I2S_BANK_FRAMES / 8u, out);
+    /* 6. Interpolate by 8: 16 -> 128 samples back at the 100 kHz output rate
+     * (arm_fir_interpolate_f32, polyphase; prototype DC gain 1 => output 1/L,
+     * matching the old operating point so rx_audio_gain/AGC settings transfer). */
+    float out[N0];
+    arm_fir_interpolate_f32(&int8, au, out, N125);
 
     /* 7. Pack Q31 into the I2S2ext audio bank, dual-channel: LEFT = HPL (MAIN /
      * R16-capture path) at rx_lin_mult, RIGHT = HPR (internal speaker) at
@@ -358,7 +377,7 @@ void i2s_dsp(const uint16_t *rx_audio, const uint16_t *rx_iq,
      * 1/L scaling is undone by these gains. */
     float gl = rx_lin_mult;    /* left  / HPL (R16 capture) */
     float gr = rx_audio_gain;  /* right / HPR (speaker)     */
-    for (unsigned f = 0; f < I2S_BANK_FRAMES; f++) {
+    for (unsigned f = 0; f < N0; f++) {
         pack_word(&tx_audio[4u * f + 0], to_q31(out[f] * gl));   /* left  / HPL */
         pack_word(&tx_audio[4u * f + 2], to_q31(out[f] * gr));   /* right / HPR */
     }

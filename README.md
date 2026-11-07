@@ -56,6 +56,7 @@ renode/
     run.sh              headless runner: build output -> run -> print USART1
 tools/
     band_sweep.py       RF band-switching sweep harness (phase 3, over SSH)
+    gen_multirate_coeffs.py  generate the phase-3 RX FIR coefficients (scipy)
 ```
 
 ## Prerequisites
@@ -68,7 +69,10 @@ tools/
   export CUBE=/path/to/STM32CubeF4      # default: ~/st/STM32CubeF4
   ```
   No LL `.c` sources are compiled — every LL call used is `__STATIC_INLINE`, and
-  the clock tree is set with direct CMSIS register writes.
+  the clock tree is set with direct CMSIS register writes. The Phase 3 receiver
+  also compiles a few **CMSIS-DSP** FIR sources (`arm_fir_decimate_f32` and
+  friends) directly from the Cube's `Drivers/CMSIS/DSP/Source` tree — no prebuilt
+  math library is required.
 - **openssl** and **python3** — `build.sh` uses them to produce the encrypted
   `.xgf` flash image (AES-256-ECB). Only needed if you intend to flash hardware.
 - **Renode** (optional, for off-hardware runs) — the self-contained 1.17.0
@@ -133,7 +137,7 @@ Each firmware directory has its own README with a full description and usage.
 | 2a — analog + telemetry + codec init (ADC/DAC, MAX17205 decode, TLV320 + CS4272) | [`phase2a-analog`](firmwares/phase2a-analog/) | ✅ builds; runs in Renode; scaling/decode/codec-init verified |
 | 2b — four I2S DMA streams (slave RX + ext TX, double-buffered, Stream3 ISR) | [`phase2b-sample-transport`](firmwares/phase2b-sample-transport/) | ✅ builds; transport logic verified in Renode; live cadence + BCLK/WCLK on hardware |
 | 2b — codec bring-up + live I2S (hardware variant: VersaClock, AVDD-LDO, WS-synced enable) | [`phase2b-hw`](firmwares/phase2b-hw/) | ✅ builds; validated on hardware (I2S locks) |
-| 3 — receive-only radio (LO + RF switching + AM/SSB DSP, feed-forward AGC) | [`phase3-rx`](firmwares/phase3-rx/) | ✅ builds; AM receive + speaker audio proven end-to-end on hardware |
+| 3 — receive-only radio (LO + RF switching + AM/SSB DSP, feed-forward AGC) | [`phase3-rx`](firmwares/phase3-rx/) | ✅ builds; AM + SSB receive + speaker audio proven end-to-end on hardware |
 
 ### Safety baseline (held from the start)
 
