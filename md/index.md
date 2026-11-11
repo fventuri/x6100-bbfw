@@ -13,6 +13,7 @@ radio. Everything published so far is **receive-only**.
    1. [Phase 2b — I²S sample transport](/phase2b-sample-transport/)
    1. [Phase 2b-HW — codec bring-up + live I²S](/phase2b-hw/)
    1. [Phase 3 — receive-only radio](/phase3-rx/)
+   1. [Phase 4 — the OEM Linux control plane](/phase4-linux/)
 1. [Attribution](/attribution/) — the reverse-engineering this builds on
 
 The repository is on GitHub at

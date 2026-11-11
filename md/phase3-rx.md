@@ -124,6 +124,11 @@ echo "T 1410000" | ./phase3-rx-ctl.py   # one-shot
 A bare command with no argument prints the value this session last set; `help`
 lists everything.
 
+> This five-byte opcode protocol is bespoke to `phase3-rx`.
+> [Phase 4](/phase4-linux/) keeps the same RX engine but replaces this slave with
+> the **stock X6100 Linux hardware contract** (an I²C3 register window plus a
+> USART6 I/Q + telemetry flow packet), so the OEM UI drives it unchanged.
+
 ### Normal control
 
 | Command | Example | Meaning |

@@ -27,11 +27,11 @@ without flashing a radio.
 | 2b | [`phase2b-sample-transport`](/phase2b-sample-transport/) | ✅ four I²S DMA streams (transport logic, Renode-verified) |
 | 2b | [`phase2b-hw`](/phase2b-hw/) | ✅ codec bring-up + live I²S on hardware |
 | 3 | [`phase3-rx`](/phase3-rx/) | ✅ receive-only radio (AM/SSB), proven on air |
+| 4 | [`phase4-linux`](/phase4-linux/) | ✅ Phase 3 RX driven by the OEM Linux control plane (I²C3 window + USART6 IQ/telemetry flow), validated on hardware |
 
 Phases 0–1 (MCU foundation and I²C bus discovery) are part of the development
-history; the firmwares documented here are Phase 2 and Phase 3. Future phases
-(Linux compatibility, guarded transmit, ATU/productization) will each get their
-own page.
+history; the firmwares documented here are Phases 2 through 4. Remaining phases
+(guarded transmit, ATU/productization) will each get their own page.
 
 ## Safety baseline
 
