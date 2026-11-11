@@ -75,6 +75,7 @@ void DMA1_Stream0_IRQHandler(void)  WEAK_ALIAS;  /* IRQ11 */
 void DMA1_Stream1_IRQHandler(void)  WEAK_ALIAS;  /* IRQ12 */
 void DMA1_Stream2_IRQHandler(void)  WEAK_ALIAS;  /* IRQ13 */
 void DMA1_Stream3_IRQHandler(void)  WEAK_ALIAS;  /* IRQ14 */
+void TIM4_IRQHandler(void)          WEAK_ALIAS;  /* IRQ30 (Phase 4: hkey TIM4 capture) */
 void I2C3_EV_IRQHandler(void)       WEAK_ALIAS;  /* IRQ72 (Phase 3: Linux control slave) */
 void I2C3_ER_IRQHandler(void)       WEAK_ALIAS;  /* IRQ73 */
 
@@ -113,6 +114,7 @@ void (*const g_isr_vector[90])(void) = {
     DMA1_Stream1_IRQHandler,     /* idx28 IRQ12 */
     DMA1_Stream2_IRQHandler,     /* idx29 IRQ13 */
     DMA1_Stream3_IRQHandler,     /* idx30 IRQ14 */
+    [46] = TIM4_IRQHandler,      /* idx46 IRQ30 (Phase 4 hkey TIM4 PWM-input capture) */
     [88] = I2C3_EV_IRQHandler,   /* idx88 IRQ72 */
     [89] = I2C3_ER_IRQHandler,   /* idx89 IRQ73 */
 };

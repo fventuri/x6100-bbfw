@@ -123,7 +123,19 @@ void bsp_gpio_init_safe(void)
     SET_LO(GPIOE, 15);
     SET_LO(GPIOE, 7);
     SET_LO(GPIOE, 10);
-    SET_LO(GPIOE, 11);
+    SET_HI(GPIOE, 11);                 /* BATTERY POWER-HOLD. VERIFIED on hardware
+                                        * 2026-11-10 (battery-keepalive-plan WP4,
+                                        * mcu-05/06): with PE11 LOW the MCU rail
+                                        * browns out 2-6 s after the power button
+                                        * is released on battery; PE11 HIGH (with
+                                        * PD2 high) holds the battery->MCU rail
+                                        * indefinitely -- the sole missing pin.
+                                        * PE11 = "member of the PA/power shutdown
+                                        * state, cleared alongside PD2 on power-
+                                        * down" (shutdown.md:70); OEM holds it high
+                                        * in its RX-safe running state (E=0xDE80).
+                                        * No RX effect (gpio.md:197); PA stays off
+                                        * (PD14=0), so safe for every phase.       */
     SET_HI(GPIOE, 14);                 /* I2C1 device/bus enable (charger.md:185:
                                         * OEM drives PE14 high before I2C1 master
                                         * init); low was the shutdown value and

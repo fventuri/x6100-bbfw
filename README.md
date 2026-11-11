@@ -8,12 +8,14 @@ built up phase by phase and validated off-hardware in the
 without flashing a physical radio.
 
 This repository currently publishes the **Phase 2** (analog, telemetry, codec,
-and I2S sample transport) and **Phase 3** (receive-only radio) firmwares.
+and I2S sample transport), **Phase 3** (receive-only radio), and **Phase 4** (the
+Phase 3 receiver driven by the stock X6100 Linux control plane) firmwares.
 
 📖 **Documentation site:** <https://fventuri.github.io/x6100-bbfw/> — overview,
 the Phase 3 receive-chain architecture (with the GPIO/I²C/I²S hardware each
-block drives), the DSP pipeline, the control-tool reference, and build/flash
-notes.
+block drives), the DSP pipeline, the Phase 4 OEM Linux control plane (I²C3
+register window + USART6 IQ/telemetry flow packet), the control-tool reference,
+and build/flash notes.
 
 > ⚠️ **Hardware / flashing disclaimer.** This is experimental firmware for a
 > specific MCU inside the X6100. Flashing custom baseband firmware is **at your
@@ -48,7 +50,7 @@ firmwares/<phase>/      one firmware per bring-up phase
     *.c / *.h           phase-local sources (DSP, FIR coeffs, ...)
     link.ld             STM32F427 app image (vectors @0x08020000)
     build.sh            arm-none-eabi build -> .elf / .bin / .xgf
-    *.py                host-side control/test tools (phase 3)
+    *.py                host-side control/test tools (phases 3–4)
 renode/
     stm32f427.repl      Renode platform (extends Renode's STM32F4 base)
     <phase>.repl        per-phase attached devices (I2C slaves, etc.)
@@ -138,6 +140,7 @@ Each firmware directory has its own README with a full description and usage.
 | 2b — four I2S DMA streams (slave RX + ext TX, double-buffered, Stream3 ISR) | [`phase2b-sample-transport`](firmwares/phase2b-sample-transport/) | ✅ builds; transport logic verified in Renode; live cadence + BCLK/WCLK on hardware |
 | 2b — codec bring-up + live I2S (hardware variant: VersaClock, AVDD-LDO, WS-synced enable) | [`phase2b-hw`](firmwares/phase2b-hw/) | ✅ builds; validated on hardware (I2S locks) |
 | 3 — receive-only radio (LO + RF switching + AM/SSB DSP, feed-forward AGC) | [`phase3-rx`](firmwares/phase3-rx/) | ✅ builds; AM + SSB receive + speaker audio proven end-to-end on hardware |
+| 4 — Phase 3 RX driven by the OEM Linux control plane (I²C3 register window + reg55 handshake + USART6 IQ/telemetry flow packet) | [`phase4-linux`](firmwares/phase4-linux/) | ✅ builds; OEM-faithful VFO/mode/volume/AGC + live panadapter IQ + battery telemetry validated on hardware |
 
 ### Safety baseline (held from the start)
 
